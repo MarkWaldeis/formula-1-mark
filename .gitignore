@@ -1,4 +1,4 @@
-﻿# Blender backup files
+# Blender backup files
 *.blend1
 *.blend2
 *.blend@
@@ -13,6 +13,9 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# Temporary files
-*.tmp
-*.bak
+# Build & Dependencies
+node_modules/
+dist/
+__pycache__/
+*.pyc
+

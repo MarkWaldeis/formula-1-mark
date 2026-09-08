@@ -1,0 +1,23 @@
+{
+  "name": "formula-1",
+  "version": "1.0.0",
+  "description": "Ein Formula 1 3D-Projekt mit hochauflösenden Fahrzeugmodellen, Blender-Szenenaufbau und automatisierter Blender MCP-Integration.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "bugs": {
+    "url": "https://github.com/MarkWaldeis/formula-1-mark/issues"
+  },
+  "homepage": "https://github.com/MarkWaldeis/formula-1-mark#readme",
+  "dependencies": {
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "vite": "^8.2.2"
+  }
+}

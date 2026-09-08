@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>F1 Clash 3D - Grand Prix Circuit & Autonomous Racing</title>
+  <link rel="stylesheet" href="./src/style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏎️</text></svg>">
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Loading Screen -->
+  <div id="loading-overlay">
+    <div class="loader-card">
+      <div class="f1-logo-badge">FORMULA 1</div>
+      <h1 class="loader-title">Autodromo Circuit Loading</h1>
+      <p class="loader-desc">Lade hochauflösende Blender F1 Strecke & 3D Rennwagen...</p>
+      <div class="progress-bar-container">
+        <div id="progress-fill" class="progress-bar-fill"></div>
+      </div>
+      <div id="loading-status" class="loader-status">Initialisiere 3D Engine...</div>
+    </div>
+  </div>
+
+  <!-- UI Overlay -->
+  <div id="ui-overlay">
+    <!-- Top Header Bar -->
+    <div class="top-bar">
+      <div class="circuit-info-card pointer-auto">
+        <span class="circuit-flag">🇮🇹</span>
+        <div>
+          <div class="circuit-name">Autodromo Nazionale Monza</div>
+          <div class="circuit-meta">F1 GP • 5.793 km • Track Temp 32°C • Dry</div>
+        </div>
+      </div>
+
+      <div class="top-controls pointer-auto">
+        <!-- Sim Speed Toggle -->
+        <button id="btn-speed" class="glass-btn" title="Simulations-Geschwindigkeit">
+          <span>⚡</span>
+          <span id="speed-label">1x Speed</span>
+        </button>
+        <!-- Pause / Play -->
+        <button id="btn-pause" class="glass-btn" title="Pause / Play">
+          <span id="pause-icon">⏸️</span>
+        </button>
+        <!-- Lighting Preset (Day / Sunset / Night) -->
+        <button id="btn-tod" class="glass-btn" title="Tageszeit ändern">
+          <span id="tod-icon">☀️</span>
+          <span id="tod-label">Day</span>
+        </button>
+        <!-- Audio Engine Sound Toggle -->
+        <button id="btn-sound" class="glass-btn" title="F1 V6 Turbo Hybrid Sound an/aus">
+          <span id="sound-icon">🔇</span>
+          <span id="sound-label">Sound OFF</span>
+        </button>
+        <!-- Focus Whole Circuit -->
+        <button id="btn-overview" class="glass-btn" title="Gesamte Strecke ansehen">
+          <span>🌍</span>
+          <span>Overview</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Leaderboard Panel (F1 Clash Style) -->
+    <div class="leaderboard-panel pointer-auto">
+      <div class="panel-header">
+        <span>F1 Live Timing</span>
+        <span id="lap-counter">Lap 1/5</span>
+      </div>
+
+      <div id="driver-list">
+        <!-- Driver 1: Verstappen -->
+        <div class="driver-card selected" data-car="redbull">
+          <div class="driver-left">
+            <span class="pos-tag">1</span>
+            <div class="team-stripe" style="background: #001a30;"></div>
+            <div class="driver-info">
+              <span class="driver-name">M. Verstappen</span>
+              <span class="driver-team">Red Bull Racing #1</span>
+            </div>
+          </div>
+          <div class="driver-right">
+            <span class="driver-gap" id="gap-redbull">LEADER</span>
+            <span class="tire-badge tire-soft">S</span>
+          </div>
+        </div>
+
+        <!-- Driver 2: Alonso -->
+        <div class="driver-card" data-car="ferrari">
+          <div class="driver-left">
+            <span class="pos-tag">2</span>
+            <div class="team-stripe" style="background: #00594f;"></div>
+            <div class="driver-info">
+              <span class="driver-name">F. Alonso</span>
+              <span class="driver-team">Aston Martin #14</span>
+            </div>
+          </div>
+          <div class="driver-right">
+            <span class="driver-gap" id="gap-ferrari">+0.480s</span>
+            <span class="tire-badge tire-medium">M</span>
+          </div>
+        </div>
+
+        <!-- Driver 3: Hamilton -->
+        <div class="driver-card" data-car="mercedes">
+          <div class="driver-left">
+            <span class="pos-tag">3</span>
+            <div class="team-stripe" style="background: #00a19c;"></div>
+            <div class="driver-info">
+              <span class="driver-name">L. Hamilton</span>
+              <span class="driver-team">Mercedes-AMG #44</span>
+            </div>
+          </div>
+          <div class="driver-right">
+            <span class="driver-gap" id="gap-mercedes">+1.120s</span>
+            <span class="tire-badge tire-hard">H</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live 2D Track Radar Minimap -->
+    <div class="minimap-card pointer-auto">
+      <canvas id="minimap-canvas" width="220" height="240"></canvas>
+    </div>
+
+    <!-- Bottom Telemetry & Strategy Controls -->
+    <div class="bottom-area">
+      <!-- Strategy HUD (F1 Clash Driver Mode) -->
+      <div class="strategy-hud pointer-auto">
+        <div class="hud-label">Race Strategy & Pace</div>
+        <div class="pace-selector">
+          <button class="pace-btn" data-pace="conserve">CONSERVE</button>
+          <button class="pace-btn active" data-pace="balanced">BALANCED</button>
+          <button class="pace-btn" data-pace="attack">ATTACK</button>
+        </div>
+
+        <div>
+          <div class="strategy-stats">
+            <span>Tire Life</span>
+            <span id="tire-wear-text">96%</span>
+          </div>
+          <div class="stat-bar">
+            <div id="tire-wear-bar" class="stat-bar-fill" style="width: 96%;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="strategy-stats">
+            <span>ERS Energy</span>
+            <span id="ers-charge-text">88%</span>
+          </div>
+          <div class="stat-bar">
+            <div id="ers-charge-bar" class="stat-bar-fill" style="width: 88%; background: var(--accent-cyan);"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cockpit Live Telemetry -->
+      <div class="cockpit-telemetry pointer-auto">
+        <div class="speed-cluster">
+          <span id="telemetry-speed" class="speed-number">284</span>
+          <span class="speed-unit">KM/H</span>
+        </div>
+
+        <div class="gear-box" id="telemetry-gear">6</div>
+
+        <div class="speed-cluster">
+          <span id="telemetry-rpm" style="font-size: 16px; font-weight: 800; font-mono: monospace;">11,400</span>
+          <span class="speed-unit">RPM</span>
+        </div>
+
+        <div id="telemetry-drs" class="drs-badge">DRS</div>
+      </div>
+    </div>
+
+    <!-- Inspection Hint -->
+    <div id="inspection-hint" class="inspection-hint">
+      🎥 Freie Kamera: Linksklick + Ziehen = Rotieren • Rechtsklick = Verschieben • Scrollen = Zoom
+    </div>
+
+    <!-- Floating Camera Switch Toolbar -->
+    <div class="camera-toolbar pointer-auto">
+      <button class="cam-btn active" data-cam="orbit">🎥 Free Orbit</button>
+      <button class="cam-btn" data-cam="clash">📱 F1 Clash Cam</button>
+      <button class="cam-btn" data-cam="chase">🏎️ Chase Cam</button>
+      <button class="cam-btn" data-cam="cockpit">🏁 Onboard T-Cam</button>
+      <button class="cam-btn" data-cam="tv">📺 TV Broadcast</button>
+      <button class="cam-btn" data-cam="drone">🚁 Aerial Drone</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
