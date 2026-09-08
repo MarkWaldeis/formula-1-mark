@@ -19,3 +19,16 @@ dist/
 __pycache__/
 *.pyc
 
+
+# Test and inspection scratch scripts
+*.py
+*.js
+!src/**/*.js
+!vite.config.js
+!test_f1_app.js
+test_*.png
+rb_*.png
+tex_*.jpg
+f1_track.glb
+track_waypoints.json
+
