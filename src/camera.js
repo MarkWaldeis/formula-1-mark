@@ -109,13 +109,15 @@ export class F1CameraController {
       // F1 Clash isometric tactical camera smoothly trailing the pack
       const clashOffset = new THREE.Vector3(-24.0, 36.0, -24.0);
       const targetPos = carPos.clone().add(clashOffset);
-      this.camera.position.lerp(targetPos, 8.0 * dt);
+      const blend = 1.0 - Math.exp(-8.0 * dt);
+      this.camera.position.lerp(targetPos, blend);
       this.camera.lookAt(carPos.clone().add(new THREE.Vector3(0, 1.2, 0)));
     } 
     else if (this.mode === 'chase') {
       // Third-person dynamic chase camera trailing behind the rear wing
       const targetCamPos = carPos.clone().addScaledVector(forward, -9.0).addScaledVector(up, 3.2);
-      this.camera.position.lerp(targetCamPos, 14.0 * dt);
+      const blend = 1.0 - Math.exp(-12.0 * dt);
+      this.camera.position.lerp(targetCamPos, blend);
       
       const lookTarget = carPos.clone().addScaledVector(forward, 15.0).addScaledVector(up, 0.8);
       this.camera.lookAt(lookTarget);
@@ -143,12 +145,13 @@ export class F1CameraController {
 
       this.currentTvIndex = bestIndex;
       const tvCam = this.tvCameras[this.currentTvIndex];
-      this.camera.position.lerp(tvCam.pos, 5.0 * dt);
+      const blend = 1.0 - Math.exp(-6.0 * dt);
+      this.camera.position.lerp(tvCam.pos, blend);
       this.camera.lookAt(carPos.clone().add(new THREE.Vector3(0, 1.2, 0)));
     } 
     else if (this.mode === 'drone') {
       // Cinematic aerial drone rotating smoothly around the car
-      this.droneAngle += 0.5 * dt;
+      this.droneAngle += 0.4 * dt;
       const droneRadius = 24.0;
       const droneHeight = 15.0;
       
@@ -156,7 +159,8 @@ export class F1CameraController {
       const droneZ = carPos.z + Math.sin(this.droneAngle) * droneRadius;
       const droneY = carPos.y + droneHeight;
       
-      this.camera.position.lerp(new THREE.Vector3(droneX, droneY, droneZ), 6.0 * dt);
+      const blend = 1.0 - Math.exp(-6.0 * dt);
+      this.camera.position.lerp(new THREE.Vector3(droneX, droneY, droneZ), blend);
       this.camera.lookAt(carPos.clone().add(new THREE.Vector3(0, 1.2, 0)));
     }
   }

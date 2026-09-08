@@ -32,14 +32,16 @@ async function test() {
   await page.screenshot({ path: 'screenshot_f1_orbit.png' });
   console.log("Saved screenshot_f1_orbit.png");
 
-  // Read live telemetry values
+  // Read live telemetry values & performance monitor
   const speed = await page.$eval('#telemetry-speed', el => el.innerText);
   const gear = await page.$eval('#telemetry-gear', el => el.innerText);
   const rpm = await page.$eval('#telemetry-rpm', el => el.innerText);
   const drs = await page.$eval('#telemetry-drs', el => el.innerText);
   const lap = await page.$eval('#lap-counter', el => el.innerText);
+  const fps = await page.$eval('#perf-fps', el => el.innerText);
+  const frametime = await page.$eval('#perf-ms', el => el.innerText);
 
-  console.log(`Telemetry check -> Speed: ${speed} km/h, Gear: ${gear}, RPM: ${rpm}, DRS: ${drs}, Lap: ${lap}`);
+  console.log(`Telemetry check -> Speed: ${speed} km/h, Gear: ${gear}, RPM: ${rpm}, DRS: ${drs}, Lap: ${lap} | Performance: ${fps}, ${frametime}`);
 
   // Switch to F1 Clash Tactical Cam
   console.log("Testing F1 Clash Tactical Cam...");

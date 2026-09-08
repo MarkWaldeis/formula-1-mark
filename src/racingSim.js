@@ -15,7 +15,9 @@ export class F1RacingSim {
   initCurve() {
     const rawPts = this.waypointsData.waypoints;
     // Map Blender (x, y, z) to Three.js coordinates: (x, z, -y)
-    const points = rawPts.map(wp => new THREE.Vector3(wp.x, wp.z + 0.15, -wp.y));
+    // Track surface is at z=0.0. Car bounding box bottom is at y=0.0.
+    // +0.035 places tires flush on the asphalt without floating.
+    const points = rawPts.map(wp => new THREE.Vector3(wp.x, wp.z + 0.035, -wp.y));
     
     this.curve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.15);
     this.trackLength = this.curve.getLength();
@@ -122,41 +124,45 @@ export class F1RacingSim {
   updateCarPhysics(car, dt) {
     const u = car.progress;
     
-    // Sample upcoming curve curvature to determine braking / apex speed
-    const lookaheadU = (u + 0.02) % 1.0;
+    // Multi-point lookahead: immediate apex and upcoming braking zone
+    const lookaheadShort = (u + 0.018) % 1.0;
+    const lookaheadLong = (u + 0.055) % 1.0;
     const currentTangent = this.curve.getTangentAt(u);
-    const futureTangent = this.curve.getTangentAt(lookaheadU);
+    const shortTangent = this.curve.getTangentAt(lookaheadShort);
+    const longTangent = this.curve.getTangentAt(lookaheadLong);
     
-    // Curvature estimate
-    const turnAngle = currentTangent.angleTo(futureTangent);
-    const isStraight = turnAngle < 0.08;
-    const isHeavyBrakingZone = turnAngle > 0.35;
+    // Curvature estimate with anticipatory turn detection
+    const shortTurn = currentTangent.angleTo(shortTangent);
+    const longTurn = currentTangent.angleTo(longTangent);
+    const turnAngle = Math.max(shortTurn, longTurn * 0.85);
     
-    // Base cornering speed vs straight line speed (km/h)
-    let maxCornerSpeed = 330.0;
-    if (turnAngle > 0.45) maxCornerSpeed = 105.0; // Hairpin / Tight chicane
-    else if (turnAngle > 0.25) maxCornerSpeed = 160.0; // Medium corner
-    else if (turnAngle > 0.12) maxCornerSpeed = 230.0; // Fast sweeper
+    // Smooth continuous cornering speed (km/h) - no jerky threshold jumps!
+    // turnAngle 0.0 -> ~335 km/h (straight)
+    // turnAngle 0.2 -> ~210 km/h (sweeper)
+    // turnAngle 0.4 -> ~145 km/h (medium)
+    // turnAngle > 0.6 -> ~105 km/h (hairpin / chicane)
+    const curveIntensity = Math.min(1.0, turnAngle / 0.52);
+    const baseCornerSpeed = 335.0 - Math.pow(curveIntensity, 0.75) * 225.0;
     
     // Pace mode adjustments
     let paceMultiplier = 1.0;
     if (car.paceMode === 'attack') paceMultiplier = 1.08;
     if (car.paceMode === 'conserve') paceMultiplier = 0.92;
 
-    // DRS zones (e.g. Main Straight Y: -160 to +80 => Three.js Z: -80 to +160, and Back Straight)
+    // DRS zones (Main Straight & Back Straight)
     const pCenter = this.curve.getPointAt(u);
     const isMainStraightDRS = (pCenter.x > -15 && pCenter.x < 15 && pCenter.z > -60 && pCenter.z < 120);
     const isBackStraightDRS = (pCenter.x > 120 && pCenter.x < 210 && pCenter.z > -160 && pCenter.z < 30);
     
     car.drsAvailable = (isMainStraightDRS || isBackStraightDRS);
-    car.drsActive = car.drsAvailable && (car.speed > 250);
+    car.drsActive = car.drsAvailable && (car.speed > 240);
 
-    let targetSpeed = maxCornerSpeed * paceMultiplier;
+    let targetSpeed = baseCornerSpeed * paceMultiplier;
     if (car.drsActive) {
       targetSpeed += 22.0; // DRS speed boost
     }
 
-    // Anti-collision following distance & traffic queue management
+    // Anti-collision following distance & queue management
     for (const other of this.cars) {
       if (other.id === car.id) continue;
       const distProgress = (other.progress - car.progress + 1.0) % 1.0;
@@ -165,7 +171,7 @@ export class F1RacingSim {
 
       // If directly behind in same lane
       if (distMeters > 0.05 && distMeters < 9.5 && lateralDist < 1.8) {
-        const safeSpeed = Math.max(40.0, other.speed * Math.min(1.0, distMeters / 9.5));
+        const safeSpeed = Math.max(45.0, other.speed * Math.min(1.0, distMeters / 9.5));
         targetSpeed = Math.min(targetSpeed, safeSpeed);
       }
     }
@@ -218,8 +224,8 @@ export class F1RacingSim {
     // Dynamic Overtaking Lane Changes
     this.updateOvertakingAI(car, dt);
 
-    // Update 3D Model position, heading, banking, and wheel animations
-    this.applyModelTransform(car, dt, currentTangent, futureTangent);
+    // Update 3D Model position, heading, and wheel animations
+    this.applyModelTransform(car, dt, currentTangent);
   }
 
   updateGearsAndRpm(car) {
@@ -253,31 +259,30 @@ export class F1RacingSim {
       const lateralDist = Math.abs(car.laneOffset - other.laneOffset);
 
       // 1. Slipstream pull-out & overtake
-      if (distForward > 1.0 && distForward < 35.0 && car.speed >= other.speed * 0.98) {
+      if (distForward > 1.5 && distForward < 35.0 && car.speed >= other.speed * 0.97) {
         if (lateralDist < 2.0) {
           const preferredSide = other.laneOffset > 0 ? -2.2 : 2.2;
           car.targetLaneOffset = preferredSide;
         }
       }
 
-      // 2. Side-by-side wheel-to-wheel lateral separation (cars within 7.0m along track)
-      if (distAlong < 7.0 && lateralDist < 2.2) {
+      // 2. Side-by-side wheel-to-wheel lateral separation (cars within 7.5m along track)
+      if (distAlong < 7.5 && lateralDist < 2.2) {
         const pushDir = car.laneOffset >= other.laneOffset ? 1 : -1;
         car.targetLaneOffset = other.laneOffset + pushDir * 2.3;
       }
     }
 
     // Clamp target lane offset to stay cleanly within track width
-    car.targetLaneOffset = Math.max(-3.6, Math.min(3.6, car.targetLaneOffset));
+    car.targetLaneOffset = Math.max(-3.5, Math.min(3.5, car.targetLaneOffset));
 
-    // Smooth lane offset transition
-    if (Math.abs(car.laneOffset - car.targetLaneOffset) > 0.02) {
-      const step = Math.sign(car.targetLaneOffset - car.laneOffset) * 2.8 * dt;
-      car.laneOffset += step;
-    }
+    // Smooth critically-damped lane offset transition (no jerky linear steps)
+    const laneDiff = car.targetLaneOffset - car.laneOffset;
+    const blend = 1.0 - Math.exp(-3.2 * dt);
+    car.laneOffset += laneDiff * blend;
   }
 
-  applyModelTransform(car, dt, currentTangent, futureTangent) {
+  applyModelTransform(car, dt, currentTangent) {
     if (!car.modelGroup) return;
 
     // Centerline position
@@ -287,31 +292,44 @@ export class F1RacingSim {
     const up = new THREE.Vector3(0, 1, 0);
     const normal = new THREE.Vector3().crossVectors(currentTangent, up).normalize();
     
-    // Final position with lane offset
+    // Final position with lane offset - strictly grounded on track
     const finalPos = centerPos.clone().addScaledVector(normal, car.laneOffset);
     car.modelGroup.position.copy(finalPos);
 
-    // Orientation: Forward vector
-    const lookTarget = finalPos.clone().add(currentTangent);
+    // Realistic steering yaw into lane changes:
+    // When moving laterally to change lanes, the car's nose smoothly aims slightly into the new lane,
+    // then straightens back out along currentTangent when lane transition finishes.
+    const laneDiff = car.targetLaneOffset - car.laneOffset;
+    const lateralSteer = Math.max(-0.25, Math.min(0.25, laneDiff * 0.14));
+    const heading = currentTangent.clone().addScaledVector(normal, lateralSteer).normalize();
+
+    const lookTarget = finalPos.clone().add(heading);
     car.modelGroup.lookAt(lookTarget);
 
-    // Centrifugal banking roll into corners
-    const crossY = currentTangent.x * futureTangent.z - currentTangent.z * futureTangent.x;
-    const targetRoll = -crossY * (car.speed / 120.0) * 0.8;
-    car.rollAngle += (targetRoll - car.rollAngle) * 5.0 * dt;
-    car.modelGroup.rotateZ(car.rollAngle);
+    // NO ROLL: Formula 1 cars have ultra-stiff suspensions and stay 100% flat on the asphalt.
+    // Setting roll to 0.0 guarantees that all 4 wheels remain completely grounded without lifting off!
+    car.rollAngle = 0.0;
 
     // Wheels rotation animation
     const wheelRadius = 0.36; // F1 18-inch Pirelli wheels
     const wheelAngularSpeed = (car.speed / 3.6) / wheelRadius;
     car.wheelAngle += wheelAngularSpeed * dt;
 
-    // Rotate internal wheel meshes if present
-    car.modelGroup.traverse(child => {
-      const name = child.name.toLowerCase();
-      if (name.includes('wheel') || name.includes('tire') || name.includes('rad') || name.includes('tyre')) {
-        child.rotation.x = car.wheelAngle;
+    // Fast rotation of cached wheel meshes without full hierarchy traverse
+    if (car.wheelMeshes && car.wheelMeshes.length > 0) {
+      for (let i = 0; i < car.wheelMeshes.length; i++) {
+        car.wheelMeshes[i].rotation.x = car.wheelAngle;
       }
-    });
+    } else if (car.modelGroup) {
+      // Fallback: cache wheel meshes once
+      car.wheelMeshes = [];
+      car.modelGroup.traverse(child => {
+        const name = child.name.toLowerCase();
+        if (name.includes('wheel') || name.includes('tire') || name.includes('rad') || name.includes('tyre')) {
+          car.wheelMeshes.push(child);
+          child.rotation.x = car.wheelAngle;
+        }
+      });
+    }
   }
 }

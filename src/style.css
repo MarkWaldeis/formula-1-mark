@@ -207,6 +207,47 @@ body, html {
   box-shadow: 0 6px 20px rgba(225, 6, 0, 0.45);
 }
 
+/* Performance & FPS Monitor */
+.perf-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 10px 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'SF Mono', Monaco, 'Courier New', Courier, monospace;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  letter-spacing: 0.2px;
+}
+
+.perf-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.perf-divider {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+#perf-fps {
+  color: #ffffff;
+}
+
+#perf-ms {
+  color: var(--accent-cyan);
+  font-weight: 600;
+  font-size: 12px;
+}
+
 /* Leaderboard Panel (F1 Clash Style) */
 .leaderboard-panel {
   position: absolute;

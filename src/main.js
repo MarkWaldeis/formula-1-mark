@@ -78,6 +78,7 @@ class F1App {
         color: '#0055ff',
         badgeColor: '#001a30',
         modelGroup: rbGroup,
+        wheelMeshes: rbGroup.wheelMeshes,
         initialProgress: 0.05,
         laneOffset: -1.8,
         tireCompound: 'SOFT',
@@ -97,6 +98,7 @@ class F1App {
         color: '#00594f',
         badgeColor: '#00594f',
         modelGroup: ferrariGroup,
+        wheelMeshes: ferrariGroup.wheelMeshes,
         initialProgress: 0.038,
         laneOffset: 1.8,
         tireCompound: 'MEDIUM',
@@ -116,6 +118,7 @@ class F1App {
         color: '#00f0ff',
         badgeColor: '#00a19c',
         modelGroup: mercGroup,
+        wheelMeshes: mercGroup.wheelMeshes,
         initialProgress: 0.024,
         laneOffset: -1.0,
         tireCompound: 'HARD',
@@ -154,12 +157,19 @@ class F1App {
     this.scene.background = new THREE.Color(0x98c8f0);
     this.scene.fog = new THREE.FogExp2(0xd8e8f8, 0.0012);
 
-    this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 1500);
+    // near: 0.35 gives 7x higher depth precision than 0.05, eliminating all track polygon flickering
+    this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.35, 1200);
     this.camera.position.set(25, 30, -15);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // logarithmicDepthBuffer guarantees zero z-fighting across huge open-world track distances
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true,
+      precision: 'highp'
+    });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -179,12 +189,12 @@ class F1App {
     this.hemiLight = new THREE.HemisphereLight(0x88ccee, 0x334433, 1.0);
     this.scene.add(this.hemiLight);
 
-    // Directional sunlight
+    // Directional sunlight - optimized 1024 shadow map for fluid 60+ FPS
     this.sunLight = new THREE.DirectionalLight(0xffffff, 2.8);
     this.sunLight.position.set(120, 220, 140);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 2048;
-    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.mapSize.width = 1024;
+    this.sunLight.shadow.mapSize.height = 1024;
     this.sunLight.shadow.camera.near = 10;
     this.sunLight.shadow.camera.far = 600;
     
@@ -193,8 +203,8 @@ class F1App {
     this.sunLight.shadow.camera.right = d;
     this.sunLight.shadow.camera.top = d;
     this.sunLight.shadow.camera.bottom = -d;
-    this.sunLight.shadow.bias = -0.00015;
-    this.sunLight.shadow.normalBias = 0.06;
+    this.sunLight.shadow.bias = -0.0002;
+    this.sunLight.shadow.normalBias = 0.04;
     this.scene.add(this.sunLight);
 
     // Stadium Floodlight Accents around track (10 towers matching circuit positions)
@@ -214,6 +224,7 @@ class F1App {
     floodlightSpots.forEach(pos => {
       const pl = new THREE.PointLight(0xfff0dd, 0, 160, 1.6);
       pl.position.copy(pos);
+      pl.visible = false; // Start inactive in Day mode to prevent GPU shader looping
       this.scene.add(pl);
       this.floodLights.push(pl);
     });
@@ -244,33 +255,64 @@ class F1App {
         const isGroundSurface = matName.includes('asphalt') || matName.includes('grass') || 
                                matName.includes('gravel') || matName.includes('runoff') || 
                                matName.includes('kerb') || matName.includes('curb') ||
-                               objName.includes('terrain') || objName.includes('track');
+                               matName.includes('line') || matName.includes('grid') ||
+                               objName.includes('terrain') || objName.includes('track') ||
+                               objName.includes('kerb') || objName.includes('curb') ||
+                               objName.includes('line') || objName.includes('runoff');
         
         child.castShadow = !isGroundSurface;
         child.receiveShadow = true;
         
-        // Enhance materials
+        // Enhance materials & prevent all z-fighting / polygon flickering
         if (child.material) {
-          if (matName.includes('asphalt')) {
-            child.material.roughness = 0.82;
-            child.material.metalness = 0.05;
-          } else if (matName.includes('kerb') || matName.includes('curb')) {
-            child.material.roughness = 0.45;
-            child.renderOrder = 2;
-            child.material.polygonOffset = true;
-            child.material.polygonOffsetFactor = -1.5;
-            child.material.polygonOffsetUnits = -1.5;
-          } else if (matName.includes('runoff') || matName.includes('gravel')) {
-            child.renderOrder = 1;
-            child.material.polygonOffset = true;
-            child.material.polygonOffsetFactor = -0.8;
-            child.material.polygonOffsetUnits = -0.8;
-          } else if (matName.includes('wall') || matName.includes('concrete')) {
-            child.material.roughness = 0.7;
-          } else if (matName.includes('gantry') || matName.includes('armco')) {
-            child.material.metalness = 0.85;
-            child.material.roughness = 0.35;
-          }
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(m => {
+            m.depthWrite = true;
+            m.depthTest = true;
+
+            // Track asphalt base
+            if (matName.includes('asphalt') || objName.includes('track_surface')) {
+              m.roughness = 0.82;
+              m.metalness = 0.05;
+              m.polygonOffset = false;
+            }
+            // Painted white lines & starting grid slots: push forward in depth to prevent flickering
+            else if (matName.includes('line') || matName.includes('white') || matName.includes('grid') ||
+                     objName.includes('line') || objName.includes('grid') || objName.includes('mark')) {
+              m.roughness = 0.55;
+              m.polygonOffset = true;
+              m.polygonOffsetFactor = -2.5;
+              m.polygonOffsetUnits = -2.5;
+            }
+            // 3D Kerbs: push forward
+            else if (matName.includes('kerb') || matName.includes('curb') || objName.includes('kerb') || objName.includes('curb')) {
+              m.roughness = 0.45;
+              m.polygonOffset = true;
+              m.polygonOffsetFactor = -1.8;
+              m.polygonOffsetUnits = -1.8;
+            }
+            // Runoff & Gravel
+            else if (matName.includes('runoff') || matName.includes('gravel') || objName.includes('runoff') || objName.includes('gravel')) {
+              m.polygonOffset = true;
+              m.polygonOffsetFactor = -1.0;
+              m.polygonOffsetUnits = -1.0;
+            }
+            // Concrete barriers & walls
+            else if (matName.includes('wall') || matName.includes('concrete')) {
+              m.roughness = 0.7;
+            }
+            // Metal gantries & armco
+            else if (matName.includes('gantry') || matName.includes('armco')) {
+              m.metalness = 0.85;
+              m.roughness = 0.35;
+            }
+            // Surrounding terrain grass: push backward
+            else if (objName.includes('terrain') || matName.includes('grass')) {
+              m.polygonOffset = true;
+              m.polygonOffsetFactor = 1.0;
+              m.polygonOffsetUnits = 1.0;
+            }
+          });
         }
       }
     });
@@ -312,9 +354,17 @@ class F1App {
     const wrapper = new THREE.Group();
     wrapper.add(carScene);
 
+    // Cache wheel meshes for zero-overhead animation
+    const wheelMeshes = [];
+
     // 4. Enhance materials for solid, crisp, realistic F1 bodywork and liveries
     carScene.traverse(child => {
       if (child.isMesh) {
+        const name = (child.name || '').toLowerCase();
+        if (name.includes('wheel') || name.includes('tire') || name.includes('rad') || name.includes('tyre')) {
+          wheelMeshes.push(child);
+        }
+
         child.castShadow = true;
         child.receiveShadow = true;
         if (child.material) {
@@ -339,6 +389,7 @@ class F1App {
       }
     });
 
+    wrapper.wheelMeshes = wheelMeshes;
     return wrapper;
   }
 
@@ -481,60 +532,101 @@ class F1App {
     this.scene.background.setHex(tod.bg);
     this.scene.fog.color.setHex(tod.fogColor);
 
-    // Floodlight activation during night and sunset
+    // Floodlight activation during night and sunset; completely hide during day to save GPU cycles
+    const isLit = tod.name === "Night" || tod.name === "Sunset";
     const floodIntensity = tod.name === "Night" ? 220.0 : (tod.name === "Sunset" ? 60.0 : 0.0);
     this.floodLights.forEach(fl => {
+      fl.visible = isLit;
       fl.intensity = floodIntensity;
-      fl.distance = 320;
+      fl.distance = 280;
     });
   }
 
+  updatePerformanceStats(dt) {
+    this.frameCount = (this.frameCount || 0) + 1;
+    this.fpsTimeAcc = (this.fpsTimeAcc || 0) + dt;
+
+    if (this.fpsTimeAcc >= 0.4) {
+      const fps = Math.min(144, Math.round(this.frameCount / this.fpsTimeAcc));
+      const ms = (this.fpsTimeAcc / this.frameCount * 1000).toFixed(1);
+      
+      if (this.dom && this.dom.perfFps) this.dom.perfFps.innerText = `${fps} FPS`;
+      if (this.dom && this.dom.perfMs) this.dom.perfMs.innerText = `${ms} ms`;
+      if (this.dom && this.dom.perfDot) {
+        if (fps >= 48) {
+          this.dom.perfDot.style.backgroundColor = 'var(--accent-green)';
+          this.dom.perfDot.style.boxShadow = '0 0 8px var(--accent-green)';
+        } else if (fps >= 28) {
+          this.dom.perfDot.style.backgroundColor = 'var(--accent-yellow)';
+          this.dom.perfDot.style.boxShadow = '0 0 8px var(--accent-yellow)';
+        } else {
+          this.dom.perfDot.style.backgroundColor = 'var(--f1-red)';
+          this.dom.perfDot.style.boxShadow = '0 0 8px var(--f1-red)';
+        }
+      }
+
+      this.frameCount = 0;
+      this.fpsTimeAcc = 0;
+    }
+  }
+
   updateHUD() {
+    if (!this.dom) {
+      this.dom = {
+        speed: document.getElementById('telemetry-speed'),
+        gear: document.getElementById('telemetry-gear'),
+        rpm: document.getElementById('telemetry-rpm'),
+        drs: document.getElementById('telemetry-drs'),
+        tireText: document.getElementById('tire-wear-text'),
+        tireBar: document.getElementById('tire-wear-bar'),
+        ersText: document.getElementById('ers-charge-text'),
+        ersBar: document.getElementById('ers-charge-bar'),
+        lap: document.getElementById('lap-counter'),
+        gaps: {
+          redbull: document.getElementById('gap-redbull'),
+          ferrari: document.getElementById('gap-ferrari'),
+          mercedes: document.getElementById('gap-mercedes')
+        },
+        perfFps: document.getElementById('perf-fps'),
+        perfMs: document.getElementById('perf-ms'),
+        perfDot: document.getElementById('perf-dot')
+      };
+    }
+
     const activeCar = this.sim.cars.find(c => c.id === this.cameraController.selectedCarId) || this.sim.cars[0];
     if (!activeCar) return;
 
     // Cockpit Speed & Gear
-    const speedEl = document.getElementById('telemetry-speed');
-    const gearEl = document.getElementById('telemetry-gear');
-    const rpmEl = document.getElementById('telemetry-rpm');
-    const drsEl = document.getElementById('telemetry-drs');
+    if (this.dom.speed) this.dom.speed.innerText = Math.round(activeCar.speed);
+    if (this.dom.gear) this.dom.gear.innerText = activeCar.gear;
+    if (this.dom.rpm) this.dom.rpm.innerText = activeCar.rpm.toLocaleString();
 
-    if (speedEl) speedEl.innerText = Math.round(activeCar.speed);
-    if (gearEl) gearEl.innerText = activeCar.gear;
-    if (rpmEl) rpmEl.innerText = activeCar.rpm.toLocaleString();
-
-    if (drsEl) {
+    if (this.dom.drs) {
       if (activeCar.drsActive) {
-        drsEl.className = "drs-badge active";
-        drsEl.innerText = "DRS OPEN";
+        this.dom.drs.className = "drs-badge active";
+        this.dom.drs.innerText = "DRS OPEN";
       } else if (activeCar.drsAvailable) {
-        drsEl.className = "drs-badge";
-        drsEl.style.color = "#00f0ff";
-        drsEl.innerText = "DRS READY";
+        this.dom.drs.className = "drs-badge";
+        this.dom.drs.style.color = "#00f0ff";
+        this.dom.drs.innerText = "DRS READY";
       } else {
-        drsEl.className = "drs-badge";
-        drsEl.style.color = "rgba(255,255,255,0.4)";
-        drsEl.innerText = "DRS";
+        this.dom.drs.className = "drs-badge";
+        this.dom.drs.style.color = "rgba(255,255,255,0.4)";
+        this.dom.drs.innerText = "DRS";
       }
     }
 
     // Strategy stats
-    const tireText = document.getElementById('tire-wear-text');
-    const tireBar = document.getElementById('tire-wear-bar');
-    const ersText = document.getElementById('ers-charge-text');
-    const ersBar = document.getElementById('ers-charge-bar');
-
-    if (tireText) tireText.innerText = `${Math.round(activeCar.tireWear)}%`;
-    if (tireBar) tireBar.style.width = `${Math.round(activeCar.tireWear)}%`;
-    if (ersText) ersText.innerText = `${Math.round(activeCar.ersCharge)}%`;
-    if (ersBar) ersBar.style.width = `${Math.round(activeCar.ersCharge)}%`;
+    if (this.dom.tireText) this.dom.tireText.innerText = `${Math.round(activeCar.tireWear)}%`;
+    if (this.dom.tireBar) this.dom.tireBar.style.width = `${Math.round(activeCar.tireWear)}%`;
+    if (this.dom.ersText) this.dom.ersText.innerText = `${Math.round(activeCar.ersCharge)}%`;
+    if (this.dom.ersBar) this.dom.ersBar.style.width = `${Math.round(activeCar.ersCharge)}%`;
 
     // Leaderboard gaps & lap counter
-    const lapEl = document.getElementById('lap-counter');
-    if (lapEl) lapEl.innerText = `Lap ${activeCar.lap}/5`;
+    if (this.dom.lap) this.dom.lap.innerText = `Lap ${activeCar.lap}/5`;
 
     for (const car of this.sim.cars) {
-      const gapEl = document.getElementById(`gap-${car.id}`);
+      const gapEl = this.dom.gaps[car.id];
       if (gapEl) {
         if (car.position === 1) {
           gapEl.innerText = "LEADER";
@@ -553,7 +645,10 @@ class F1App {
   animate() {
     requestAnimationFrame(() => this.animate());
 
-    const dt = this.clock.getDelta();
+    const dt = Math.min(this.clock.getDelta(), 0.1);
+
+    // Update real-time performance counter
+    this.updatePerformanceStats(dt);
 
     if (this.sim) {
       this.sim.update(dt);
@@ -567,7 +662,13 @@ class F1App {
       this.minimap.draw();
     }
 
-    this.updateHUD();
+    // Throttle DOM updates to ~15 Hz (every 66ms) to avoid browser layout thrashing & stutter
+    this.hudTimer = (this.hudTimer || 0) + dt;
+    if (this.hudTimer >= 0.066) {
+      this.updateHUD();
+      this.hudTimer = 0;
+    }
+
     this.renderer.render(this.scene, this.camera);
   }
 }

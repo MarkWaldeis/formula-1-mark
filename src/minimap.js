@@ -20,6 +20,9 @@ export class F1Minimap {
 
     this.bounds = { minX, maxX, minZ, maxZ };
     this.padding = 24;
+
+    this.bgCanvas = null;
+    this.initBackground();
   }
 
   worldToCanvas(x, z) {
@@ -41,6 +44,51 @@ export class F1Minimap {
     return { x: px, y: py };
   }
 
+  initBackground() {
+    this.bgCanvas = document.createElement('canvas');
+    this.bgCanvas.width = this.canvas.width;
+    this.bgCanvas.height = this.canvas.height;
+    const bgCtx = this.bgCanvas.getContext('2d');
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // Subtle background grid & glass glow
+    bgCtx.fillStyle = "rgba(10, 15, 25, 0.75)";
+    bgCtx.beginPath();
+    bgCtx.roundRect(0, 0, w, h, 16);
+    bgCtx.fill();
+    bgCtx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    bgCtx.lineWidth = 1.5;
+    bgCtx.stroke();
+
+    // Draw Track Outline
+    bgCtx.beginPath();
+    for (let i = 0; i < this.waypoints.length; i++) {
+      const wp = this.waypoints[i];
+      const pt = this.worldToCanvas(wp.x, -wp.y);
+      if (i === 0) bgCtx.moveTo(pt.x, pt.y);
+      else bgCtx.lineTo(pt.x, pt.y);
+    }
+    bgCtx.closePath();
+
+    // Track outer glow
+    bgCtx.shadowColor = "rgba(0, 180, 255, 0.6)";
+    bgCtx.shadowBlur = 8;
+    bgCtx.strokeStyle = "rgba(200, 225, 255, 0.85)";
+    bgCtx.lineWidth = 4.5;
+    bgCtx.lineCap = "round";
+    bgCtx.lineJoin = "round";
+    bgCtx.stroke();
+    bgCtx.shadowBlur = 0;
+
+    // Start/Finish Line Indicator
+    const sfPt = this.worldToCanvas(0, 40);
+    bgCtx.fillStyle = "#ffffff";
+    bgCtx.beginPath();
+    bgCtx.arc(sfPt.x, sfPt.y, 4, 0, Math.PI * 2);
+    bgCtx.fill();
+  }
+
   draw() {
     const ctx = this.ctx;
     const w = this.canvas.width;
@@ -48,43 +96,10 @@ export class F1Minimap {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Subtle background grid & glass glow
-    ctx.fillStyle = "rgba(10, 15, 25, 0.75)";
-    ctx.beginPath();
-    ctx.roundRect(0, 0, w, h, 16);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Draw Track Outline
-    ctx.beginPath();
-    for (let i = 0; i < this.waypoints.length; i++) {
-      const wp = this.waypoints[i];
-      const pt = this.worldToCanvas(wp.x, -wp.y);
-      if (i === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
+    // Blit pre-rendered background instantly
+    if (this.bgCanvas) {
+      ctx.drawImage(this.bgCanvas, 0, 0);
     }
-    ctx.closePath();
-
-    // Track outer glow
-    ctx.shadowColor = "rgba(0, 180, 255, 0.6)";
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = "rgba(200, 225, 255, 0.85)";
-    ctx.lineWidth = 4.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-
-    // Reset shadow
-    ctx.shadowBlur = 0;
-
-    // Start/Finish Line Indicator
-    const sfPt = this.worldToCanvas(0, 40);
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(sfPt.x, sfPt.y, 4, 0, Math.PI * 2);
-    ctx.fill();
 
     // Draw Live Cars
     for (const car of this.sim.cars) {
